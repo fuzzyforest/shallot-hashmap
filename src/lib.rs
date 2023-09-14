@@ -1,3 +1,4 @@
+#![feature(macro_metavar_expr)]
 use std::fmt::Display;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -51,18 +52,6 @@ impl<E: LispExpression> Display for HashMap<E> {
     }
 }
 
-create_expression!(
-    HashMapExpression,
-    Lambda<HashMapExpression>,
-    Macro<HashMapExpression>,
-    BuiltinFunction<HashMapExpression>,
-    BuiltinMacro<HashMapExpression>,
-    List<HashMapExpression>,
-    HashMap<HashMapExpression>,
-    Number,
-    Symbol
-);
-
 pub fn get_environment<E>(arguments: &[E], env: &mut Environment<E>) -> Result<E>
 where
     E: LispExpression + ToAndFrom<HashMap<E>>,
@@ -73,9 +62,31 @@ where
     Ok(HashMap(env.inner.clone()).into())
 }
 
-pub fn set_environment<E: LispExpression + ToAndFrom<HashMap<E>>>(env: &mut Environment<E>) {
-    env.set(
-        "get_environment",
-        BuiltinFunction::new("get_environment", get_environment),
-    );
+pub fn mapping<E>(arguments: &[E], _env: &mut Environment<E>) -> Result<E>
+where
+    E: LispExpression + ToAndFrom<HashMap<E>>,
+{
+    if arguments.len() % 2 != 0 {
+        bail!("Constructing a mapping requires an even number of arguments");
+    }
+    let mut result = HashMap(std::collections::hash_map::HashMap::new());
+    for i in 0..arguments.len() / 2 {
+        let key: &Symbol = arguments[2 * i].try_into_atom().with_context(|| {
+            anyhow!(
+                "Even arguments to construct mapping must be symbols (see {})",
+                arguments[2 * i]
+            )
+        })?;
+        let value = &arguments[2 * i + 1];
+        result.0.insert(key.clone(), value.clone());
+    }
+
+    Ok(result.into())
 }
+
+create_layer!(
+   over
+   | atoms HashMap<Expression>
+   | builtins "get_environment" -> BuiltinFunction::new("get_environment", get_environment),
+            "mapping" -> BuiltinFunction::new("mapping", mapping)
+);
